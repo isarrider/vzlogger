@@ -297,8 +297,13 @@ void vz::api::InfluxDB::send() {
 	auto rollback_state = [&]() {
 		_last_timestamp = snapshot_last_timestamp;
 		if (snapshot_lastReadingSent) {
+			// _lastReadingSent existed before the loop - restore it to its previous value
 			if (!_lastReadingSent) _lastReadingSent = new Reading(*snapshot_lastReadingSent);
 			else *_lastReadingSent = *snapshot_lastReadingSent;
+		} else {
+			// _lastReadingSent was null before the loop - if the loop allocated it, free it
+			delete _lastReadingSent;
+			_lastReadingSent = nullptr;
 		}
 	};
 
