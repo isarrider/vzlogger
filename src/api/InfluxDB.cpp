@@ -431,7 +431,7 @@ void vz::api::InfluxDB::send() {
 			rollback_state(); // restore _last_timestamp and _lastReadingSent so all
 			                  // buffered readings are retried on next send() call
 
-		if (curl_code != CURLE_OK) {
+			if (curl_code != CURLE_OK) {
 				print(log_error, "CURL Error: %s", channel()->name(),
 					  curl_easy_strerror(curl_code));
 			}
