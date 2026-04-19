@@ -294,7 +294,7 @@ void vz::api::InfluxDB::send() {
 	//                            — loop may allocate it; must free and null on rollback
 	//   C) duplicates>0, _lastReadingSent was already set before loop
 	//                            — must restore its value, not just the pointer
-const int64_t snapshot_last_timestamp = _last_timestamp;
+	const int64_t snapshot_last_timestamp = _last_timestamp;
 	Reading *snapshot_lastReadingSent = nullptr;
 	if (_lastReadingSent) {
 		snapshot_lastReadingSent = new Reading(*_lastReadingSent);
@@ -449,7 +449,7 @@ const int64_t snapshot_last_timestamp = _last_timestamp;
 	// In the failure+Case C path rollback_state() restored _lastReadingSent from it,
 	// but snapshot_lastReadingSent itself is a separate allocation that must always
 	// be freed here.
-delete snapshot_lastReadingSent;
+	delete snapshot_lastReadingSent;
 
 	if (curlSessionProvider) {
 		// release our curl session
