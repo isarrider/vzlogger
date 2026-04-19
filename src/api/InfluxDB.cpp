@@ -282,6 +282,26 @@ void vz::api::InfluxDB::send() {
 	const int duplicates = channel()->duplicates();
 	const int duplicates_ms = duplicates * 1000;
 
+	// Snapshot state before the build loop so we can roll back on failure.
+	// _last_timestamp and _lastReadingSent are advanced during the loop even
+	// though the HTTP send has not happened yet. If the send fails,
+	// buf->undelete() restores the buffer items, but without rolling back
+	// these fields the readings will be skipped on every subsequent attempt
+	// and silently dropped when the next buf->clean() runs.
+	const int64_t snapshot_last_timestamp = _last_timestamp;
+	Reading *snapshot_lastReadingSent = nullptr;
+	if (_lastReadingSent) {
+		snapshot_lastReadingSent = new Reading(*_lastReadingSent);
+	}
+
+	auto rollback_state = [&]() {
+		_last_timestamp = snapshot_last_timestamp;
+		if (snapshot_lastReadingSent) {
+			if (!_lastReadingSent) _lastReadingSent = new Reading(*snapshot_lastReadingSent);
+			else *_lastReadingSent = *snapshot_lastReadingSent;
+		}
+	};
+
 	// build request body from buffer contents
 	buf->lock();
 	for (it = buf->begin(); it != buf->end(); it++) {
@@ -393,6 +413,8 @@ void vz::api::InfluxDB::send() {
 			buf->clean(); // delete the stuff we just sent to InfluxDB from the buffer
 		} else {
 			buf->undelete(); // failure to insert, so dont delete the buffer
+			rollback_state(); // restore _last_timestamp and _lastReadingSent so buffered
+			                  // readings are retried correctly when InfluxDB comes back up
 			if (curl_code != CURLE_OK) {
 				print(log_error, "CURL Error: %s", channel()->name(),
 					  curl_easy_strerror(curl_code));
@@ -406,6 +428,11 @@ void vz::api::InfluxDB::send() {
 	} else { // there is nothing to send
 		print(log_info, "Nothing to send to InfluxDB api", channel()->name());
 	}
+
+	// Free the snapshot in all code paths (success, failure, nothing-to-send).
+	// In the failure path rollback_state() may have copied it into _lastReadingSent,
+	// but that is a separate allocation; snapshot_lastReadingSent itself must be freed here.
+	delete snapshot_lastReadingSent;
 
 	if (curlSessionProvider) {
 		// release our curl session
