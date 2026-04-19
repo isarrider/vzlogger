@@ -1,15 +1,14 @@
-/***********************************************************************/
+/*****************************************************************************/
 /** @file InfluxDB.cpp
  * This is cobbled together from the Volkszaehler and MySmartGrid API...
  *
  * @author Stefan Kuntz
- * @email  Stefan.github@gmail.com
+ * @email Stefan.github@gmail.com
  * @copyright Copyright (c) 2017 - 2023, The volkszaehler.org project
  * @package vzlogger
  * @license http://opensource.org/licenses/gpl-license.php GNU Public License
  **/
 /*---------------------------------------------------------------------*/
-
 /*
  * This file is part of volkzaehler.org
  *
@@ -20,7 +19,7 @@
  *
  * volkzaehler.org is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
@@ -41,8 +40,9 @@
 extern Config_Options options;
 
 vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOptions)
-	: ApiIF(ch), _response(new vz::api::CurlResponse()), _last_timestamp(0), _lastReadingSent(0) {
+    : ApiIF(ch), _response(new vz::api::CurlResponse()), _last_timestamp(0), _lastReadingSent(0) {
 	OptionList optlist;
+
 	print(log_debug, "InfluxDB API initialize", ch->name());
 
 	// parse config file options
@@ -73,12 +73,14 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 
 	try {
 		_organization = optlist.lookup_string(pOptions, "organization");
-		print(log_finest, "api InfluxDB using organization %s", ch->name(), _organization.c_str());
+		print(log_finest, "api InfluxDB using organization %s", ch->name(),
+		      _organization.c_str());
 	} catch (vz::OptionNotFoundException &e) {
 		print(log_finest, "api InfluxDB no organization set", ch->name());
 		_organization = "";
 	} catch (vz::VZException &e) {
-		print(log_alert, "api InfluxDB requires parameter \"organization\" as string!", ch->name());
+		print(log_alert, "api InfluxDB requires parameter \"organization\" as string!",
+		      ch->name());
 		throw;
 	}
 
@@ -98,8 +100,6 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 		// dont log passwords by default
 		// print(log_finest, "api InfluxDB using password %s", ch->name(), _password.c_str());
 	} catch (vz::OptionNotFoundException &e) {
-		// print(log_alert, "api InfluxDB requires parameter \"password\"!", ch->name());
-		// throw;
 		print(log_finest, "api InfluxDB no password set", ch->name());
 		_password = "";
 	} catch (vz::VZException &e) {
@@ -121,14 +121,14 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	try {
 		_measurement_name = optlist.lookup_string(pOptions, "measurement_name");
 		print(log_finest, "api InfluxDB using measurement name %s", ch->name(),
-			  _measurement_name.c_str());
+		      _measurement_name.c_str());
 	} catch (vz::OptionNotFoundException &e) {
 		print(log_finest, "api InfluxDB will use default measurement name \"vzlogger\"",
-			  ch->name());
+		      ch->name());
 		_measurement_name = "vzlogger";
 	} catch (vz::VZException &e) {
 		print(log_alert, "api InfluxDB requires parameter \"measurement_name\" as string!",
-			  ch->name());
+		      ch->name());
 		throw;
 	}
 
@@ -148,7 +148,8 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 		print(log_finest, "api InfluxDB using curl timeout %i", ch->name(), _curl_timeout);
 	} catch (vz::OptionNotFoundException &e) {
 		_curl_timeout = 30; // seconds
-		print(log_finest, "api InfluxDB will use default timeout %i", ch->name(), _curl_timeout);
+		print(log_finest, "api InfluxDB will use default timeout %i", ch->name(),
+		      _curl_timeout);
 	} catch (vz::VZException &e) {
 		print(log_alert, "api InfluxDB requires parameter \"timeout\" as int!", ch->name());
 		throw;
@@ -157,37 +158,39 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	try {
 		_max_batch_inserts = optlist.lookup_int(pOptions, "max_batch_inserts");
 		print(log_finest, "api InfluxDB using max batch inserts: %i", ch->name(),
-			  _max_batch_inserts);
+		      _max_batch_inserts);
 	} catch (vz::OptionNotFoundException &e) {
 		_max_batch_inserts = 4500; // max lines per request
 		print(log_finest, "api InfluxDB will use default max_batch_inserts %i", ch->name(),
-			  _max_batch_inserts);
+		      _max_batch_inserts);
 	} catch (vz::VZException &e) {
 		print(log_alert, "api InfluxDB requires parameter \"max_batch_inserts\" as int!",
-			  ch->name());
+		      ch->name());
 		throw;
 	}
 
 	try {
 		_max_buffer_size = optlist.lookup_int(pOptions, "max_buffer_size");
-		print(log_finest, "api InfluxDB using max_buffer_size: %i", ch->name(), _max_buffer_size);
+		print(log_finest, "api InfluxDB using max_buffer_size: %i", ch->name(),
+		      _max_buffer_size);
 	} catch (vz::OptionNotFoundException &e) {
 		_max_buffer_size = _max_batch_inserts * 100; // max items in buffer
 		print(log_finest, "api InfluxDB will use default max_buffer_size %i", ch->name(),
-			  _max_buffer_size);
+		      _max_buffer_size);
 	} catch (vz::VZException &e) {
-		print(log_alert, "api InfluxDB requires parameter \"max_buffer_size\" as int!", ch->name());
+		print(log_alert, "api InfluxDB requires parameter \"max_buffer_size\" as int!",
+		      ch->name());
 		throw;
 	}
 
 	try {
 		_send_uuid = optlist.lookup_bool(pOptions, "send_uuid");
 		print(log_finest, "api InfluxDB using send_uuid: %s", ch->name(),
-			  _send_uuid ? "true" : "false");
+		      _send_uuid ? "true" : "false");
 	} catch (vz::OptionNotFoundException &e) {
 		_send_uuid = true;
 		print(log_finest, "api InfluxDB will use default send_uuid %s", ch->name(),
-			  _send_uuid ? "true" : "false");
+		      _send_uuid ? "true" : "false");
 	} catch (vz::VZException &e) {
 		print(log_alert, "api InfluxDB requires parameter \"send_uuid\" as bool!", ch->name());
 		throw;
@@ -196,14 +199,14 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	try {
 		_ssl_verifypeer = optlist.lookup_bool(pOptions, "ssl_verifypeer");
 		print(log_finest, "api InfluxDB using ssl_verifypeer: %s", ch->name(),
-			  _ssl_verifypeer ? "true" : "false");
+		      _ssl_verifypeer ? "true" : "false");
 	} catch (vz::OptionNotFoundException &e) {
 		_ssl_verifypeer = true;
 		print(log_finest, "api InfluxDB will use default ssl_verifypeer %s", ch->name(),
-			  _ssl_verifypeer ? "true" : "false");
+		      _ssl_verifypeer ? "true" : "false");
 	} catch (vz::VZException &e) {
 		print(log_alert, "api InfluxDB requires parameter \"_ssl_verifypeer\" as bool!",
-			  ch->name());
+		      ch->name());
 		throw;
 	}
 
@@ -211,6 +214,7 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	if (!curlhelper) {
 		throw vz::VZException("CURL: cannot create handle for urlencode.");
 	}
+
 	char *database_urlencoded = curl_easy_escape(curlhelper, _database.c_str(), 0);
 	if (!database_urlencoded) {
 		throw vz::VZException("Cannot url-encode database name.");
@@ -219,7 +223,8 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	// build request url
 	_url = _host;
 	if (!_organization.empty()) {
-		char *organization_urlencoded = curl_easy_escape(curlhelper, _organization.c_str(), 0);
+		char *organization_urlencoded =
+		    curl_easy_escape(curlhelper, _organization.c_str(), 0);
 		if (!organization_urlencoded) {
 			throw vz::VZException("Cannot url-encode organization name.");
 		}
@@ -232,6 +237,7 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 	}
 	_url.append(database_urlencoded);
 	_url.append("&precision=ms");
+
 	print(log_debug, "api InfluxDB using url %s", ch->name(), _url.c_str());
 	curl_free(database_urlencoded);
 }
@@ -244,11 +250,12 @@ void vz::api::InfluxDB::send() {
 	CURLcode curl_code;
 	int request_body_lines = 0;
 	std::string request_body;
+
 	Buffer::Ptr buf = channel()->buffer();
 	Buffer::iterator it;
 
 	_api.curl =
-		curlSessionProvider ? curlSessionProvider->get_easy_session(_host + channel()->uuid()) : 0;
+	    curlSessionProvider ? curlSessionProvider->get_easy_session(_host + channel()->uuid()) : 0;
 
 	if (!_api.curl) {
 		throw vz::VZException("CURL: cannot create handle.");
@@ -259,16 +266,15 @@ void vz::api::InfluxDB::send() {
 	// delete items if the buffer grows too large
 	if (buf->size() > (unsigned)_max_buffer_size) {
 		print(log_warning,
-			  "Buffer too big (%i items). Deleting items. (This indicates a connection problem)",
-			  channel()->name(), buf->size());
+		      "Buffer too big (%i items). Deleting items. (This indicates a connection problem)",
+		      channel()->name(), buf->size());
 		unsigned int delta_delete =
-			buf->size() - (unsigned)_max_buffer_size; // number of items to delete from buffer
+		    buf->size() - (unsigned)_max_buffer_size; // number of items to delete from buffer
 		buf->lock();
 		it = buf->begin();
-		while (!(
-			delta_delete == 0 ||
-			(it ==
-			 buf->end()))) { // buf->end() check shouldnt be necessary. But better safe than sorry.
+		while (!(delta_delete == 0 ||
+		         (it == buf->end()))) { // buf->end() check shouldnt be necessary. But better safe
+			                           // than sorry.
 			it->mark_delete();
 			it++;
 			delta_delete--;
@@ -282,23 +288,42 @@ void vz::api::InfluxDB::send() {
 	const int duplicates = channel()->duplicates();
 	const int duplicates_ms = duplicates * 1000;
 
+	// Snapshot state before the build loop so we can roll back on failure.
+	// _last_timestamp and _lastReadingSent are advanced during the loop even
+	// though the HTTP send has not happened yet. If the send fails,
+	// buf->undelete() restores the buffer items, but without rolling back
+	// these fields the readings will be skipped on every subsequent attempt
+	// and silently dropped when the next buf->clean() runs.
+	const int64_t snapshot_last_timestamp = _last_timestamp;
+	Reading *snapshot_lastReadingSent = nullptr;
+	if (_lastReadingSent) {
+		snapshot_lastReadingSent = new Reading(*_lastReadingSent);
+	}
+
+	auto rollback_state = [&]() {
+		_last_timestamp = snapshot_last_timestamp;
+		if (snapshot_lastReadingSent) {
+			if (!_lastReadingSent) _lastReadingSent = new Reading(*snapshot_lastReadingSent);
+			else *_lastReadingSent = *snapshot_lastReadingSent;
+		}
+	};
+
 	// build request body from buffer contents
 	buf->lock();
 	for (it = buf->begin(); it != buf->end(); it++) {
 		if (request_body_lines >= _max_batch_inserts) {
 			print(log_debug, "reached maximum lines for InfluxDB insertion request.",
-				  channel()->name());
+			      channel()->name());
 			break;
 		}
 
 		bool sendData = false;
-
 		timestamp = it->time_ms();
 
 		print(log_finest, "Reading buffer: timestamp %lld value %f", channel()->name(),
-			  it->time_ms(), it->value());
-
+		      it->time_ms(), it->value());
 		print(log_debug, "compare: %lld %lld", channel()->name(), _last_timestamp, timestamp);
+
 		// we can only add/consider a timestamp if the ms resolution is not before than from
 		// previous one:
 		if (_last_timestamp <= timestamp) {
@@ -307,9 +332,9 @@ void vz::api::InfluxDB::send() {
 				_last_timestamp = timestamp;
 			} else {
 				const Reading &r = *it;
+
 				// duplicates should be ignored
 				// but send at least each <duplicates> seconds
-
 				if (!_lastReadingSent) { // first one from the duplicate consideration -> send it
 					sendData = true;
 					_lastReadingSent = new Reading(r);
@@ -318,7 +343,7 @@ void vz::api::InfluxDB::send() {
 					// a) timestamp
 					// b) duplicate value
 					if ((timestamp >= (_last_timestamp + duplicates_ms)) ||
-						(r.value() != _lastReadingSent->value())) {
+					    (r.value() != _lastReadingSent->value())) {
 						// send the current one:
 						sendData = true;
 						_last_timestamp = timestamp;
@@ -351,7 +376,6 @@ void vz::api::InfluxDB::send() {
 
 		it->mark_delete();
 	}
-
 	buf->unlock();
 
 	if (request_body_lines > 0) { // there is something to send
@@ -367,25 +391,27 @@ void vz::api::InfluxDB::send() {
 		} else if (_token_header) {
 			curl_easy_setopt(_api.curl, CURLOPT_HTTPHEADER, _token_header);
 		}
+
 		curl_easy_setopt(_api.curl, CURLOPT_URL, _url.c_str());
 		curl_easy_setopt(_api.curl, CURLOPT_VERBOSE, options.verbosity() > 0);
 		curl_easy_setopt(_api.curl, CURLOPT_SSL_VERIFYPEER, _ssl_verifypeer);
-
 		curl_easy_setopt(_api.curl, CURLOPT_DEBUGFUNCTION,
-						 &(vz::api::CurlCallback::debug_callback));
+		                 &(vz::api::CurlCallback::debug_callback));
 		curl_easy_setopt(_api.curl, CURLOPT_DEBUGDATA, response());
+
 		// signal-handling in libcurl is NOT thread-safe. so force to deactivated them!
 		curl_easy_setopt(_api.curl, CURLOPT_NOSIGNAL, 1);
 		curl_easy_setopt(_api.curl, CURLOPT_TIMEOUT, _curl_timeout);
-
 		curl_easy_setopt(_api.curl, CURLOPT_POSTFIELDS, request_body.c_str());
 		curl_easy_setopt(_api.curl, CURLOPT_WRITEFUNCTION,
-						 &(vz::api::CurlCallback::write_callback));
+		                 &(vz::api::CurlCallback::write_callback));
 		curl_easy_setopt(_api.curl, CURLOPT_WRITEDATA, response());
 
 		// actually send the request to InfluxDB
 		curl_code = curl_easy_perform(_api.curl);
+
 		print(log_finest, "Influxdb curl terminated", channel()->name());
+
 		curl_easy_getinfo(_api.curl, CURLINFO_RESPONSE_CODE, &http_code);
 
 		if (curl_code == CURLE_OK && http_code >= 200 && http_code < 300) { // everything is ok
@@ -393,19 +419,27 @@ void vz::api::InfluxDB::send() {
 			buf->clean(); // delete the stuff we just sent to InfluxDB from the buffer
 		} else {
 			buf->undelete(); // failure to insert, so dont delete the buffer
+			rollback_state(); // restore _last_timestamp and _lastReadingSent so buffered
+			                  // readings are retried correctly when InfluxDB comes back up
 			if (curl_code != CURLE_OK) {
 				print(log_error, "CURL Error: %s", channel()->name(),
-					  curl_easy_strerror(curl_code));
+				      curl_easy_strerror(curl_code));
 			}
 			print(log_error, "InfluxDB error! - HTTP Status %i", channel()->name(), http_code);
 			if (!_response->get_response().empty()) {
 				print(log_error, "InfluxDB response was %s", channel()->name(),
-					  _response->get_response().c_str());
+				      _response->get_response().c_str());
 			}
 		}
+
 	} else { // there is nothing to send
 		print(log_info, "Nothing to send to InfluxDB api", channel()->name());
 	}
+
+	// Free the snapshot in all code paths (success, failure, nothing-to-send).
+	// In the failure path rollback_state() may have copied it into _lastReadingSent,
+	// but that is a separate allocation; snapshot_lastReadingSent itself must be freed here.
+	delete snapshot_lastReadingSent;
 
 	if (curlSessionProvider) {
 		// release our curl session
