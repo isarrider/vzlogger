@@ -440,6 +440,10 @@ void vz::api::InfluxDB::send() {
 				print(log_error, "InfluxDB response was %s", channel()->name(),
 					  _response->get_response().c_str());
 			}
+			if (buf->size() > 30) {
+				print(log_error, "InfluxDB buffer contains %i undelivered readings",
+				      channel()->name(), buf->size());
+			}
 		}
 	} else { // there is nothing to send
 		print(log_info, "Nothing to send to InfluxDB api", channel()->name());
