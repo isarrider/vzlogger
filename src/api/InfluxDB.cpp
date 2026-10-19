@@ -41,7 +41,8 @@
 extern Config_Options options;
 
 vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOptions)
-	: ApiIF(ch), _response(new vz::api::CurlResponse()), _last_timestamp(0), _lastReadingSent(0) {
+	: ApiIF(ch), _response(new vz::api::CurlResponse()), _last_timestamp(0), _send_failed(false),
+	  _lastReadingSent(0) {
 	OptionList optlist;
 	print(log_debug, "InfluxDB API initialize", ch->name());
 
@@ -395,10 +396,14 @@ void vz::api::InfluxDB::send() {
 			for (int i = 0; i < request_body_lines && !_values.empty(); i++) {
 				_values.pop_front();
 			}
+			if (_send_failed) {
+				// same level as the failure warning, so both show up at the same verbosity
+				print(log_warning,
+					  "InfluxDB insert succeeded again, sent %i queued readings, %i still queued",
+					  channel()->name(), request_body_lines, _values.size());
+				_send_failed = false;
+			}
 		} else {
-			// failure to insert: keep the readings in the send queue and retry next time
-			print(log_warning, "InfluxDB insert failed, keeping %i readings queued for retry",
-				  channel()->name(), _values.size());
 			if (curl_code != CURLE_OK) {
 				print(log_error, "CURL Error: %s", channel()->name(),
 					  curl_easy_strerror(curl_code));
@@ -408,6 +413,10 @@ void vz::api::InfluxDB::send() {
 				print(log_error, "InfluxDB response was %s", channel()->name(),
 					  _response->get_response().c_str());
 			}
+			// failure to insert: keep the readings in the send queue and retry next time
+			print(log_warning, "InfluxDB insert failed, keeping %i readings queued for retry",
+				  channel()->name(), _values.size());
+			_send_failed = true;
 		}
 	} else { // there is nothing to send
 		print(log_info, "Nothing to send to InfluxDB api", channel()->name());
