@@ -42,6 +42,7 @@ add_executable(mock_metermap
 	../../src/api/hmac.cpp
 	../../src/Config_Options.cpp
 	../../src/Buffer.cpp
+	../../src/api/BufferReader.cpp
 	../../src/api/Volkszaehler.cpp
 	../../src/api/MySmartGrid.cpp
 	../../src/api/InfluxDB.cpp

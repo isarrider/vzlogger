@@ -45,7 +45,7 @@ extern Config_Options options;
 const int MAX_CHUNK_SIZE = 64;
 
 vz::api::Volkszaehler::Volkszaehler(Channel::Ptr ch, std::list<Option> pOptions)
-	: ApiIF(ch), _last_timestamp(0), _lastReadingSent(0) {
+	: ApiIF(ch), _reader(ch->buffer(), ch->name(), ch->duplicates(), false) {
 	OptionList optlist;
 	char agent[255];
 
@@ -89,10 +89,7 @@ vz::api::Volkszaehler::Volkszaehler(Channel::Ptr ch, std::list<Option> pOptions)
 	_api.headers = curl_slist_append(_api.headers, agent);
 }
 
-vz::api::Volkszaehler::~Volkszaehler() {
-	if (_lastReadingSent)
-		delete _lastReadingSent;
-}
+vz::api::Volkszaehler::~Volkszaehler() {}
 
 void vz::api::Volkszaehler::send() {
 	CURLresponse response;
@@ -106,7 +103,7 @@ void vz::api::Volkszaehler::send() {
 	response.data = NULL;
 	response.size = 0;
 
-	json_obj = api_json_tuples(channel()->buffer());
+	json_obj = api_json_tuples();
 	json_str = json_object_to_json_string(json_obj);
 	if (json_str == NULL || strcmp(json_str, "null") == 0) {
 		print(log_debug, "JSON request body is null. Nothing to send now.", channel()->name());
@@ -146,18 +143,9 @@ void vz::api::Volkszaehler::send() {
 	// check response
 	if (curl_code == CURLE_OK && http_code == 200) { // everything is ok
 		print(log_debug, "CURL Request succeeded with code: %i", channel()->name(), http_code);
-		if (_values.size() <= (size_t)MAX_CHUNK_SIZE) {
-			print(log_finest, "emptied all (%d) values", channel()->name(), _values.size());
-			_values.clear();
-		} else {
-			// remove only the first MAX_CHUNK_SIZE values:
-			for (int i = 0; i < MAX_CHUNK_SIZE; ++i)
-				_values.pop_front();
-			print(log_finest, "emptied MAX_CHUNK_SIZE values", channel()->name());
-		}
-		// clear buffer-readings
-		// channel()->buffer.sent = last->next;
-	} else { // error
+		print(log_finest, "sent %zu values", channel()->name(), _reader.batch().size());
+		_reader.commit(); // the readings are acknowledged and can be removed from the buffer
+	} else {              // error
 		if (curl_code != CURLE_OK) {
 			print(log_alert, "CURL: %s", channel()->name(), curl_easy_strerror(curl_code));
 		} else if (http_code != 200) {
@@ -180,74 +168,24 @@ void vz::api::Volkszaehler::send() {
 
 void vz::api::Volkszaehler::register_device() {}
 
-json_object *vz::api::Volkszaehler::api_json_tuples(Buffer::Ptr buf) {
+json_object *vz::api::Volkszaehler::api_json_tuples() {
+	const std::vector<Buffer::Entry> &values = _reader.next(MAX_CHUNK_SIZE);
+	print(log_debug, "==> number of tuples: %zu (%zu pending)", channel()->name(), values.size(),
+		  _reader.pending());
 
-	Buffer::iterator it;
-
-	print(log_debug, "==> number of tuples: %d", channel()->name(), buf->size());
-	int64_t timestamp = 1;
-	const int duplicates = channel()->duplicates();
-	const int duplicates_ms = duplicates * 1000;
-
-	// copy all values to local buffer queue
-	buf->lock();
-	for (it = buf->begin(); it != buf->end(); it++) {
-		timestamp = it->time_ms();
-		print(log_debug, "compare: %lld %lld", channel()->name(), _last_timestamp, timestamp);
-		// we can only add/consider a timestamp if the ms resolution is different than from previous
-		// one:
-		if (_last_timestamp < timestamp) {
-			if (0 == duplicates) { // send all values
-				_values.push_back(*it);
-				_last_timestamp = timestamp;
-			} else {
-				const Reading &r = *it;
-				// duplicates should be ignored
-				// but send at least each <duplicates> seconds
-
-				if (!_lastReadingSent) { // first one from the duplicate consideration -> send it
-					_lastReadingSent = new Reading(r);
-					_values.push_back(r);
-					_last_timestamp = timestamp;
-				} else { // one reading sent already. compare
-					// a) timestamp
-					// b) duplicate value
-					if ((timestamp >= (_last_timestamp + duplicates_ms)) ||
-						(r.value() != _lastReadingSent->value())) {
-						// send the current one:
-						_values.push_back(r);
-						_last_timestamp = timestamp;
-						*_lastReadingSent = r;
-					} else {
-						// ignore it
-					}
-				}
-			}
-		}
-		it->mark_delete();
-	}
-	buf->unlock();
-	buf->clean();
-
-	if (_values.size() < 1) {
+	if (values.empty()) {
 		return NULL;
 	}
 
 	json_object *json_tuples = json_object_new_array();
-	int nrTuples = 0;
-	for (it = _values.begin(); it != _values.end(); it++) {
+	for (std::vector<Buffer::Entry>::const_iterator it = values.begin(); it != values.end(); ++it) {
 		struct json_object *json_tuple = json_object_new_array();
 
-		json_object_array_add(json_tuple, json_object_new_int64(it->time_ms()));
-		json_object_array_add(json_tuple, json_object_new_double(it->value()));
+		json_object_array_add(json_tuple, json_object_new_int64(it->time_ms));
+		json_object_array_add(json_tuple, json_object_new_double(it->value));
 
 		json_object_array_add(json_tuples, json_tuple);
-		++nrTuples;
-		if (nrTuples >= MAX_CHUNK_SIZE)
-			break;
 	}
-	print(log_finest, "copied %d/%d values for middleware transmission", channel()->name(),
-		  nrTuples, _values.size());
 
 	return json_tuples;
 }
@@ -277,7 +215,7 @@ void vz::api::Volkszaehler::api_parse_exception(CURLresponse response, char *err
 				if (err_message.find("Duplicate entry")) {
 					print(log_warning, "Middleware says duplicated value. Removing first entry!",
 						  channel()->name());
-					_values.pop_front();
+					_reader.commit_first();
 				}
 			}
 		} else {
