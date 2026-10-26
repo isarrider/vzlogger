@@ -26,6 +26,22 @@ Then run the installation:
 Docker
 ------
 
+### Prebuilt image
+
+GitHub Actions builds the image for amd64, arm64, arm/v7, arm/v6 (e.g. Raspberry Pi with a 64-bit or 32-bit OS) and riscv64 and publishes it to the GitHub Container Registry, so you don't have to build it yourself. Docker picks the right architecture automatically:
+
+     docker pull ghcr.io/isarrider/vzlogger:latest
+
+| Tag | Built from |
+|---|---|
+| `latest` | the newest commit on `master` (also rebuilt weekly for base image updates) |
+| `sha-<commit>` | a specific commit on `master` |
+| `1.2.3`, `1.2`, `1` | release tags `v1.2.3` |
+
+To use it, replace `vzlogger` at the end of the `docker run` command below with `ghcr.io/isarrider/vzlogger:latest`.
+
+### Building it yourself
+
 You can also build a docker image:
 
      docker build -t vzlogger .
