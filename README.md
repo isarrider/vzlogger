@@ -8,6 +8,15 @@ vzlogger
 
 Feel free to implement support your own hardware ;)
 
+About this fork
+---------------
+
+This is a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogger). It tracks upstream and adds the following changes. Fixes are meant to go upstream as well:
+
+  * **InfluxDB: no data loss during database outages.** Previously, readings were lost while InfluxDB was unreachable. The data simply had a gap for the outage. Readings are now kept in a send queue and only removed once InfluxDB has accepted them, so an outage is filled in once the database is back. `max_buffer_size` limits the queue; the oldest readings are dropped first. ([#1](https://github.com/isarrider/vzlogger/pull/1))
+  * **InfluxDB: outages are visible in the log.** A failed insert logs how many readings are still queued, and the first successful insert afterwards logs `InfluxDB insert succeeded again, sent N queued readings, M still queued`. Both are warnings, so the start and end of an outage show up at `verbosity` 3 or higher. ([#2](https://github.com/isarrider/vzlogger/pull/2))
+  * **Prebuilt multi-arch Docker image** for amd64, arm64, arm/v7, arm/v6 and riscv64 on `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. ([#4](https://github.com/isarrider/vzlogger/pull/4))
+
 Installation
 ---------------
 To install, follow the detailed installation instructions at http://wiki.volkszaehler.org/software/controller/vzlogger/installation_cpp-version
