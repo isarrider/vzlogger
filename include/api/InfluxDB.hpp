@@ -32,6 +32,7 @@
 
 #include <ApiIF.hpp>
 #include <Options.hpp>
+#include <api/BufferReader.hpp>
 #include <api/CurlIF.hpp>
 #include <api/CurlResponse.hpp>
 #include <common.h>
@@ -69,13 +70,10 @@ class InfluxDB : public ApiIF {
 	unsigned int _curl_timeout;
 	bool _send_uuid;
 	bool _ssl_verifypeer;
-	std::list<Reading> _values;
 	CurlResponse::Ptr _response;
 
-	int64_t _last_timestamp; /* remember last timestamp */
-	bool _send_failed;       /* last insert failed, log when it succeeds again */
-	// duplicates support:
-	Reading *_lastReadingSent;
+	BufferReader _reader; /**< our position in the channel's Buffer, duplicates filter */
+	bool _send_failed;    /**< last insert failed, log when it succeeds again */
 
 	typedef struct {
 		CURL *curl;

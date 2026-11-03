@@ -191,7 +191,6 @@ void vz::api::MySmartGrid::send() {
 		print(log_debug, "Request succeeded with code: %i", channel()->name(), http_code);
 		_values.clear();
 	} else { /* error */
-		channel()->buffer()->undelete();
 		if (curl_code != CURLE_OK) {
 			print(log_alert, "CURL: %s", channel()->name(), curl_easy_strerror(curl_code));
 		} else if (http_code != 200) {
@@ -287,7 +286,6 @@ void vz::api::MySmartGrid::_send(const std::string &url, json_object *json_obj) 
 		print(log_debug, "Request succeeded with code: %i", channel()->name(), http_code);
 		_values.clear();
 	} else { /* error */
-		channel()->buffer()->undelete();
 		if (curl_code != CURLE_OK) {
 			print(log_alert, "CURL: %s", channel()->name(), curl_easy_strerror(curl_code));
 		} else if (http_code != 200) {
@@ -346,13 +344,8 @@ void vz::api::MySmartGrid::api_parse_exception(char *err, size_t n) {
 
 json_object *vz::api::MySmartGrid::_apiDevice(Buffer::Ptr buf) {
 
-	// copy all values to local buffer queue
-	buf->lock();
-	for (Buffer::iterator it = buf->begin(); it != buf->end(); it++) {
-		it->mark_delete();
-	}
-	buf->unlock();
-	buf->clean();
+	// device channels don't transmit readings: acknowledge everything
+	buf->commit(buf->end_cursor());
 
 	if (_first_ts > 0) { // send lifesign
 		_first_ts = time(NULL);
@@ -472,7 +465,7 @@ json_object *vz::api::MySmartGrid::_json_object_measurements(Buffer::Ptr buf) {
 	//  n>]]
 	json_object *json_obj = json_object_new_object();
 	json_object *json_tuples = json_object_new_array();
-	Buffer::iterator it;
+	std::list<Buffer::Entry>::const_iterator it;
 
 	// long last_counter = 0;
 
@@ -481,29 +474,29 @@ json_object *vz::api::MySmartGrid::_json_object_measurements(Buffer::Ptr buf) {
 
 	// print(log_debug, "MSG-API, buffer has %d element.", channel()->name(), buf->size());
 	if (_values.size()) {
-		timestamp = _values.back().time_s();
-		value = _values.back().value();
+		timestamp = _values.back().time_ms / 1000;
+		value = _values.back().value;
 	}
 
-	// copy all values to local buffer queue
-	buf->lock();
-	for (it = buf->begin(); it != buf->end(); it++) {
-		if (timestamp < it->time_s() /*&& value != (long)(it->value() * _scaler)*/) {
-			_values.push_back(*it);
-			timestamp = it->time_s();
-			value = it->value() * _scaler;
+	// move all new values to local queue
+	std::vector<Buffer::Entry> entries;
+	buf->read(0, (size_t)-1, entries);
+	if (!entries.empty())
+		buf->commit(entries.back().seq + 1);
+	for (std::vector<Buffer::Entry>::const_iterator e = entries.begin(); e != entries.end(); ++e) {
+		if (timestamp < e->time_ms / 1000 /*&& value != (long)(e->value * _scaler)*/) {
+			_values.push_back(*e);
+			timestamp = e->time_ms / 1000;
+			value = e->value * _scaler;
 		}
-		it->mark_delete();
 	}
-	buf->unlock();
-	buf->clean();
 
 	// print(log_debug, "Valuescounter: %d", channel()->name(), _values.size());
 
 	for (it = _values.begin(); it != _values.end(); it++) {
-		timestamp = it->time_s();
-		value = it->value() * _scaler;
-		print(log_debug, "==> %ld, %lf - %ld", channel()->name(), timestamp, it->value(), value);
+		timestamp = it->time_ms / 1000;
+		value = it->value * _scaler;
+		print(log_debug, "==> %ld, %lf - %ld", channel()->name(), timestamp, it->value, value);
 	}
 	if (_values.size() < 1 || (_values.size() < 2 && _first_counter == 0)) {
 		return NULL;
@@ -514,8 +507,8 @@ json_object *vz::api::MySmartGrid::_json_object_measurements(Buffer::Ptr buf) {
 
 		// TODO use long int of new json-c version
 		// API requires milliseconds => * 1000
-		long timestamp = it->time_s();
-		long value = it->value() * _scaler;
+		long timestamp = it->time_ms / 1000;
+		long value = it->value * _scaler;
 
 		if (_first_counter < 1) {
 			_first_counter = value;

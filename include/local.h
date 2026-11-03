@@ -31,6 +31,9 @@
 #include <sys/socket.h> /* required for libMHD */
 
 #include <microhttpd.h>
+#include <vector>
+
+#include <Buffer.hpp>
 
 #if MHD_VERSION >= 0x00097002
 using MHD_RESULT = MHD_Result;
@@ -44,6 +47,7 @@ MHD_RESULT handle_request(void *cls, struct MHD_Connection *connection, const ch
 
 class Channel;
 void shrink_localbuffer(); // remove old data in the local buffer
-void add_ch_to_localbuffer(Channel &ch);
+// add entries published by the channel's Buffer in this period to the local buffer
+void add_to_localbuffer(Channel &ch, const std::vector<Buffer::Entry> &entries);
 
 #endif /* _LOCAL_H_ */

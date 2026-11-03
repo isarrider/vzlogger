@@ -106,7 +106,7 @@ class MySmartGrid : public ApiIF {
 	CurlResponse::Ptr _response;
 
 	// Volatil
-	std::list<Reading> _values;
+	std::list<Buffer::Entry> _values; /**< readings taken from the buffer, not sent yet */
 
 	time_t _first_ts;
 	long _first_counter;

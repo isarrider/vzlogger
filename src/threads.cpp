@@ -153,35 +153,26 @@ void *reading_thread(void *arg) {
 
 			for (MeterMap::iterator ch = mapping->begin(); ch != mapping->end(); ch++) {
 
-				/* aggregate buffer values if aggmode != NONE */
-				(*ch)->buffer()->aggregate(mtr->aggtime(), mtr->aggFixedInterval());
-				/* mark buffer "ready" */
-				(*ch)->buffer()->have_newValues();
-
-				/* shrink buffer */
-				(*ch)->buffer()->clean();
+				/* aggregate (if aggmode != NONE) and publish the readings of this period */
+				std::vector<Buffer::Entry> published;
+				(*ch)->buffer()->publish(mtr->aggtime(), mtr->aggFixedInterval(), &published);
 #ifdef LOCAL_SUPPORT
 				if (options.local()) {
-					shrink_localbuffer();          // remove old/outdated data in the local buffer
-					add_ch_to_localbuffer(*(*ch)); // add this ch data to the local buffer
+					shrink_localbuffer(); // remove old/outdated data in the local buffer
+					add_to_localbuffer(*(*ch), published); // add this period's data
 				}
 #endif
 #ifdef ENABLE_MQTT
 				// update mqtt values as well:
 				if (mqttClient) {
-					Buffer::Ptr buf = (*ch)->buffer();
-					Buffer::iterator it;
-					buf->lock();
-					for (it = buf->begin(); it != buf->end(); ++it) {
-						if (&*it) { // this seems dirty. see issue #427
-									// the lock()/unlock() should avoid it.
-							Reading &r = *it;
-							if (!r.deleted()) {
-								mqttClient->publish((*ch), r, true);
-							}
-						}
+					for (std::vector<Buffer::Entry>::const_iterator it = published.begin();
+						 it != published.end(); ++it) {
+						struct timeval t;
+						t.tv_sec = it->time_ms / 1000;
+						t.tv_usec = (it->time_ms % 1000) * 1000;
+						Reading r(it->value, t, (*ch)->identifier());
+						mqttClient->publish((*ch), r, true);
 					}
-					buf->unlock();
 				}
 #endif
 

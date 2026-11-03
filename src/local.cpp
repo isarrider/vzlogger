@@ -75,18 +75,13 @@ void shrink_localbuffer() // remove old data in the local buffer
 	}
 }
 
-void add_ch_to_localbuffer(Channel &ch) {
+void add_to_localbuffer(Channel &ch, const std::vector<Buffer::Entry> &entries) {
 	pthread_mutex_lock(&localbuffer_mutex);
 	LIST_ChannelData &l = localbuffer[ch.uuid()];
 
-	// now add all not-deleted items to the localbuffer:
-	Buffer::Ptr buf = ch.buffer();
-	Buffer::iterator it;
-	for (it = buf->begin(); it != buf->end(); ++it) {
-		Reading &r = *it;
-		if (!r.deleted()) {
-			l.push_back(ChannelData(r.time_ms(), r.value()));
-		}
+	for (std::vector<Buffer::Entry>::const_iterator it = entries.begin(); it != entries.end();
+		 ++it) {
+		l.push_back(ChannelData(it->time_ms, it->value));
 	}
 	if (options.buffer_length() < 0) { // max size based localbuffer. keep max -buffer_length items
 		while (l.size() > static_cast<unsigned int>(-(options.buffer_length())))

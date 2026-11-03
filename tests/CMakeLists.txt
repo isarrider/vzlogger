@@ -7,6 +7,7 @@ list(APPEND test_sources
     ../src/Buffer.cpp
     ../src/Channel.cpp
     ../src/Config_Options.cpp
+    ../src/api/BufferReader.cpp
     ../src/api/Volkszaehler.cpp
     ../src/CurlSessionProvider.cpp
     ../src/protocols/MeterW1therm.cpp

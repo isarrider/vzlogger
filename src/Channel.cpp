@@ -46,6 +46,7 @@ Channel::Channel(const std::list<Option> &pOptions, const std::string apiProtoco
 	std::stringstream oss;
 	oss << "chn" << id;
 	_name = oss.str();
+	_buffer->set_name(_name);
 
 	OptionList optlist;
 

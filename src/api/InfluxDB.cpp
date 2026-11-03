@@ -41,8 +41,8 @@
 extern Config_Options options;
 
 vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOptions)
-	: ApiIF(ch), _response(new vz::api::CurlResponse()), _last_timestamp(0), _send_failed(false),
-	  _lastReadingSent(0) {
+	: ApiIF(ch), _response(new vz::api::CurlResponse()),
+	  _reader(ch->buffer(), ch->name(), ch->duplicates(), true), _send_failed(false) {
 	OptionList optlist;
 	print(log_debug, "InfluxDB API initialize", ch->name());
 
@@ -180,6 +180,8 @@ vz::api::InfluxDB::InfluxDB(const Channel::Ptr &ch, const std::list<Option> &pOp
 		print(log_alert, "api InfluxDB requires parameter \"max_buffer_size\" as int!", ch->name());
 		throw;
 	}
+	// the channel's Buffer keeps unsent readings across connection problems, up to this limit
+	ch->buffer()->set_max_size(_max_buffer_size > 0 ? (size_t)_max_buffer_size : 0);
 
 	try {
 		_send_uuid = optlist.lookup_bool(pOptions, "send_uuid");
@@ -245,8 +247,6 @@ void vz::api::InfluxDB::send() {
 	CURLcode curl_code;
 	int request_body_lines = 0;
 	std::string request_body;
-	Buffer::Ptr buf = channel()->buffer();
-	Buffer::iterator it;
 
 	_api.curl =
 		curlSessionProvider ? curlSessionProvider->get_easy_session(_host + channel()->uuid()) : 0;
@@ -255,103 +255,28 @@ void vz::api::InfluxDB::send() {
 		throw vz::VZException("CURL: cannot create handle.");
 	}
 
-	int64_t timestamp = 1;
-	const int duplicates = channel()->duplicates();
-	const int duplicates_ms = duplicates * 1000;
+	// build request body from the next batch of unsent readings. They stay in the channel's
+	// Buffer until InfluxDB acknowledged them.
+	const std::vector<Buffer::Entry> &batch = _reader.next(_max_batch_inserts);
+	print(log_debug, "Sending %zu of %zu pending readings", channel()->name(), batch.size(),
+		  _reader.pending());
 
-	// Move all readings from the channel buffer into our own queue (_values).
-	// The reading thread calls buf->clean() after every meter read, which erases every
-	// reading marked as deleted. So we must not keep unsent readings in the channel buffer
-	// while the (possibly long, e.g. timing out) HTTP request is running: they would be
-	// gone before we could undelete them. Instead we own them in _values and only remove
-	// them from there once InfluxDB acknowledged them.
-	// The duplicates/timestamp filter is applied here, while queueing, so its state
-	// (_last_timestamp, _lastReadingSent) reflects what has been queued and does not
-	// cause queued-but-unsent readings to be skipped on a retry.
-	print(log_debug, "Buffer has %i items", channel()->name(), buf->size());
-	buf->lock();
-	for (it = buf->begin(); it != buf->end(); it++) {
-		if (it->deleted())
-			continue;
-
-		timestamp = it->time_ms();
-
-		print(log_finest, "Reading buffer: timestamp %lld value %f", channel()->name(),
-			  it->time_ms(), it->value());
-
-		print(log_debug, "compare: %lld %lld", channel()->name(), _last_timestamp, timestamp);
-		// we can only add/consider a timestamp if the ms resolution is not before than from
-		// previous one:
-		if (_last_timestamp <= timestamp) {
-			if (0 == duplicates) { // send all values
-				_values.push_back(*it);
-				_last_timestamp = timestamp;
-			} else {
-				const Reading &r = *it;
-				// duplicates should be ignored
-				// but send at least each <duplicates> seconds
-
-				if (!_lastReadingSent) { // first one from the duplicate consideration -> send it
-					_lastReadingSent = new Reading(r);
-					_values.push_back(r);
-					_last_timestamp = timestamp;
-				} else { // one reading sent already. compare
-					// a) timestamp
-					// b) duplicate value
-					if ((timestamp >= (_last_timestamp + duplicates_ms)) ||
-						(r.value() != _lastReadingSent->value())) {
-						// send the current one:
-						_values.push_back(r);
-						_last_timestamp = timestamp;
-						*_lastReadingSent = r;
-					} else {
-						// ignore it
-					}
-				}
-			}
-		}
-
-		it->mark_delete();
+	std::string prefix(_measurement_name);
+	if (_send_uuid) {
+		prefix.append(",uuid=");
+		prefix.append(channel()->uuid());
 	}
-	buf->unlock();
-	buf->clean();
-
-	print(log_debug, "Send queue has %i items", channel()->name(), _values.size());
-
-	// delete the oldest items if the queue grows too large
-	if (_values.size() > (unsigned)_max_buffer_size) {
-		print(log_warning,
-			  "Send queue too big (%i items). Deleting oldest items. (This indicates a "
-			  "connection problem)",
-			  channel()->name(), _values.size());
-		while (_values.size() > (unsigned)_max_buffer_size) {
-			_values.pop_front();
-		}
-		print(log_debug, "cleaned send queue, now %i items", channel()->name(), _values.size());
+	if (!_tags.empty()) {
+		prefix.append(",");
+		prefix.append(_tags);
 	}
-
-	// build request body from the oldest (at most _max_batch_inserts) queued readings
-	for (it = _values.begin(); it != _values.end(); it++) {
-		if (request_body_lines >= _max_batch_inserts) {
-			print(log_debug, "reached maximum lines for InfluxDB insertion request.",
-				  channel()->name());
-			break;
-		}
-
-		request_body.append(_measurement_name);
-		if (_send_uuid) {
-			request_body.append(",uuid=");
-			request_body.append(channel()->uuid());
-		}
-		if (!_tags.empty()) {
-			request_body.append(",");
-			request_body.append(_tags);
-		}
+	for (std::vector<Buffer::Entry>::const_iterator it = batch.begin(); it != batch.end(); ++it) {
 		std::stringstream value_str;
-		value_str << " value=" << std::fixed << std::setprecision(6) << it->value();
+		value_str << " value=" << std::fixed << std::setprecision(6) << it->value;
+		request_body.append(prefix);
 		request_body.append(value_str.str());
 		request_body.append(" ");
-		request_body.append(std::to_string(it->time_ms()));
+		request_body.append(std::to_string(it->time_ms));
 		request_body.append("\n"); // each measurement on new line
 		request_body_lines++;
 	}
@@ -392,18 +317,15 @@ void vz::api::InfluxDB::send() {
 
 		if (curl_code == CURLE_OK && http_code >= 200 && http_code < 300) { // everything is ok
 			print(log_debug, "InfluxDB CURL success", channel()->name());
-			// remove the readings we just sent from the send queue
-			for (int i = 0; i < request_body_lines && !_values.empty(); i++) {
-				_values.pop_front();
-			}
+			_reader.commit(); // InfluxDB has the readings, remove them from the buffer
 			if (_send_failed) {
-				// same level as the failure warning, so both show up at the same verbosity
-				print(log_warning,
-					  "InfluxDB insert succeeded again, sent %i queued readings, %i still queued",
-					  channel()->name(), request_body_lines, _values.size());
+				print(log_warning, "InfluxDB insert succeeded again, %zu readings still pending",
+					  channel()->name(), _reader.pending());
 				_send_failed = false;
 			}
 		} else {
+			// failure to insert: the readings stay in the buffer and are sent again next time
+			_send_failed = true;
 			if (curl_code != CURLE_OK) {
 				print(log_error, "CURL Error: %s", channel()->name(),
 					  curl_easy_strerror(curl_code));
@@ -413,10 +335,8 @@ void vz::api::InfluxDB::send() {
 				print(log_error, "InfluxDB response was %s", channel()->name(),
 					  _response->get_response().c_str());
 			}
-			// failure to insert: keep the readings in the send queue and retry next time
-			print(log_warning, "InfluxDB insert failed, keeping %i readings queued for retry",
-				  channel()->name(), _values.size());
-			_send_failed = true;
+			print(log_warning, "InfluxDB insert failed, keeping %zu readings for retry",
+				  channel()->name(), _reader.pending());
 		}
 	} else { // there is nothing to send
 		print(log_info, "Nothing to send to InfluxDB api", channel()->name());
