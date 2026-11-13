@@ -15,6 +15,16 @@ This is a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogg
 
   * **InfluxDB: no data loss during database outages.** Previously, readings were lost while InfluxDB was unreachable. The data simply had a gap for the outage. Readings are now kept in a send queue and only removed once InfluxDB has accepted them, so an outage is filled in once the database is back. `max_buffer_size` limits the queue; the oldest readings are dropped first. ([#1](https://github.com/isarrider/vzlogger/pull/1))
   * **InfluxDB: outages are visible in the log.** A failed insert logs how many readings are still queued, and the first successful insert afterwards logs `InfluxDB insert succeeded again, sent N queued readings, M still queued`. Both are warnings, so the start and end of an outage show up at `verbosity` 3 or higher. ([#2](https://github.com/isarrider/vzlogger/pull/2))
+  * **SML: raw frames with a bad CRC can be logged.** libsml drops SML messages with a CRC mismatch and only logs `libsml: sml_message_parse(): crc mismatch, dropping message`, so there's nothing left to analyse. With `"dump_crc_errors": true` on an SML meter, vzlogger checks the CRC of each whole frame and, on a mismatch, logs the raw frame as hex (32 bytes per line) at warning level, so it needs `verbosity` 3 or higher. Off by default. ([#6](https://github.com/isarrider/vzlogger/pull/6))
+
+        "meters": [{
+            "protocol": "sml",
+            "device": "/dev/ttyUSB0",
+            "dump_crc_errors": true,
+            ...
+        }]
+
+    The dump shows what was corrupted: random single bits point to the optical link (head alignment, ambient light), missing or repeated bytes point to the serial side or a second process reading the same device. To pull the dumps out of the Docker log: `docker logs vzlogger 2>&1 | grep -A20 "transport CRC mismatch"`.
   * **Prebuilt multi-arch Docker image** for amd64, arm64, arm/v7, arm/v6 and riscv64 on `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. ([#4](https://github.com/isarrider/vzlogger/pull/4))
 
 Installation
