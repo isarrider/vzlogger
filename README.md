@@ -27,6 +27,11 @@ Merged upstream:
 - **Docker: parallel build.** The Docker build runs `make` with one job per CPU core, which makes building the image much faster on multi-core machines. [#574](https://github.com/volkszaehler/vzlogger/pull/574) (February 2023).
 - **Docker: smaller image.** The Dockerfile used a `buster-slim` base image and no longer declared a volume. [#517](https://github.com/volkszaehler/vzlogger/pull/517) (April 2022). The image has since moved to Alpine.
 
+Superseded upstream PRs, closed without being merged:
+
+- [#711](https://github.com/volkszaehler/vzlogger/pull/711) and [#712](https://github.com/volkszaehler/vzlogger/pull/712): earlier versions of the OBIS identifiers change, replaced by [#713](https://github.com/volkszaehler/vzlogger/pull/713).
+- [#703](https://github.com/volkszaehler/vzlogger/pull/703): logged how many readings were still undelivered in the InfluxDB buffer, replaced by [#716](https://github.com/volkszaehler/vzlogger/pull/716), which keeps the readings queued during an outage and logs when the outage starts and ends.
+
 ### SML: dumping frames with a bad CRC
 
     "meters": [{
