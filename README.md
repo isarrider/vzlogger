@@ -11,21 +11,32 @@ Feel free to implement support your own hardware ;)
 About this fork
 ---------------
 
-This is a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogger). It tracks upstream and adds the following changes. Fixes are meant to go upstream as well:
+This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogger). It follows upstream `master` and adds the changes below. This fork's `master` contains all of them, and the [prebuilt Docker image](#prebuilt-image) is built from it. Each change goes through a PR into this fork first, and fixes are then proposed upstream from a branch of their own that is based on upstream `master`. Once upstream merges a change, it moves to the list of merged changes below the table.
 
-  * **InfluxDB: no data loss during database outages.** Previously, readings were lost while InfluxDB was unreachable. The data simply had a gap for the outage. Readings are now kept in a send queue and only removed once InfluxDB has accepted them, so an outage is filled in once the database is back. `max_buffer_size` limits the queue; the oldest readings are dropped first. ([#1](https://github.com/isarrider/vzlogger/pull/1))
-  * **InfluxDB: outages are visible in the log.** A failed insert logs how many readings are still queued, and the first successful insert afterwards logs `InfluxDB insert succeeded again, sent N queued readings, M still queued`. Both are warnings, so the start and end of an outage show up at `verbosity` 3 or higher. ([#2](https://github.com/isarrider/vzlogger/pull/2))
-  * **SML: raw frames with a bad CRC can be logged.** libsml drops SML messages with a CRC mismatch and only logs `libsml: sml_message_parse(): crc mismatch, dropping message`, so there's nothing left to analyse. With `"dump_crc_errors": true` on an SML meter, vzlogger checks the CRC of each whole frame and, on a mismatch, logs the raw frame as hex (32 bytes per line) at warning level, so it needs `verbosity` 3 or higher. Off by default. ([#6](https://github.com/isarrider/vzlogger/pull/6), upstream: [volkszaehler/vzlogger#719](https://github.com/volkszaehler/vzlogger/pull/719))
+| Change | Configuration | In this fork | Upstream |
+|---|---|---|---|
+| **InfluxDB: no data loss during database outages.** Previously, readings were lost while InfluxDB was unreachable, and the data had a gap for the outage. Readings are now kept in a send queue and only removed once InfluxDB has accepted them, so the gap is filled in once the database is back. The oldest readings are dropped first when the queue is full. | `max_buffer_size` on the InfluxDB channel limits the queue | [#1](https://github.com/isarrider/vzlogger/pull/1) | pending: [#716](https://github.com/volkszaehler/vzlogger/pull/716), branch [`upstream/influxdb-keep-readings-on-outage`](https://github.com/isarrider/vzlogger/tree/upstream/influxdb-keep-readings-on-outage) |
+| **InfluxDB: outages are visible in the log.** A failed insert logs how many readings are still queued, and the first successful insert afterwards logs `InfluxDB insert succeeded again, sent N queued readings, M still queued`. Both are warnings, so the start and end of an outage show up at `verbosity` 3 or higher. | – | [#2](https://github.com/isarrider/vzlogger/pull/2) | pending: part of [#716](https://github.com/volkszaehler/vzlogger/pull/716) |
+| **SML: raw frames with a bad CRC can be logged.** libsml drops SML messages with a CRC mismatch and only logs `libsml: sml_message_parse(): crc mismatch, dropping message`, so there's nothing left to analyse. With this option, vzlogger checks the CRC of each whole frame and, on a mismatch, logs the raw frame as hex (32 bytes per line) at warning level. A temporary workaround until libsml can report CRC errors itself ([libsml#147](https://github.com/volkszaehler/libsml/issues/147)), see [below](#sml-dumping-frames-with-a-bad-crc). | `"dump_crc_errors": true` on an SML meter (default `false`), needs `verbosity` 3 or higher | [#6](https://github.com/isarrider/vzlogger/pull/6), [#9](https://github.com/isarrider/vzlogger/pull/9) | pending: [#719](https://github.com/volkszaehler/vzlogger/pull/719), branch [`upstream/sml-dump-crc-errors`](https://github.com/isarrider/vzlogger/tree/upstream/sml-dump-crc-errors) |
+| **Docker: builder on `alpine:latest` again.** The builder stage was pinned to `alpine:3.20` to get the build working. With current Alpine (GCC 15.2, CMake 4.2) it builds again on all five platforms, and the builder and runtime stage use the same Alpine release again, so the binary runs against the library versions it was built with. | – | [#10](https://github.com/isarrider/vzlogger/pull/10) | pending: [#718](https://github.com/volkszaehler/vzlogger/pull/718), branch [`fix/dockerfile-alpine-latest`](https://github.com/isarrider/vzlogger/tree/fix/dockerfile-alpine-latest) |
+| **Prebuilt multi-arch Docker image.** GitHub Actions builds the image for amd64, arm64, arm/v7, arm/v6 and riscv64 and publishes it as `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. | – | [#4](https://github.com/isarrider/vzlogger/pull/4) | fork only |
 
-        "meters": [{
-            "protocol": "sml",
-            "device": "/dev/ttyUSB0",
-            "dump_crc_errors": true,
-            ...
-        }]
+Merged upstream: none yet.
 
-    The dump shows what was corrupted: random single bits point to the optical link (head alignment, ambient light), missing or repeated bytes point to the serial side or a second process reading the same device. To pull the dumps out of the Docker log: `docker logs vzlogger 2>&1 | grep -A20 "transport CRC mismatch"`.
-  * **Prebuilt multi-arch Docker image** for amd64, arm64, arm/v7, arm/v6 and riscv64 on `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. ([#4](https://github.com/isarrider/vzlogger/pull/4))
+### SML: dumping frames with a bad CRC
+
+    "meters": [{
+        "protocol": "sml",
+        "device": "/dev/ttyUSB0",
+        "dump_crc_errors": true,
+        ...
+    }]
+
+The dump shows what was corrupted: random single bits point to the optical link (head alignment, ambient light), missing or repeated bytes point to the serial side or a second process reading the same device. To pull the dumps out of the Docker log:
+
+    docker logs vzlogger 2>&1 | grep -A20 "transport CRC mismatch"
+
+A few CRC errors are normal on an optical head. At one telegram per second, a rate around 0.1–0.2 % means one dropped telegram every few minutes, which doesn't affect the meter counters.
 
 Installation
 ---------------
