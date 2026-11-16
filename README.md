@@ -21,7 +21,16 @@ This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [
 | **Docker: builder on `alpine:latest` again.** The builder stage was pinned to `alpine:3.20` to get the build working. With current Alpine (GCC 15.2, CMake 4.2) it builds again on all five platforms, and the builder and runtime stage use the same Alpine release again, so the binary runs against the library versions it was built with. | – | [#10](https://github.com/isarrider/vzlogger/pull/10) | pending: [#718](https://github.com/volkszaehler/vzlogger/pull/718), branch [`fix/dockerfile-alpine-latest`](https://github.com/isarrider/vzlogger/tree/fix/dockerfile-alpine-latest) |
 | **Prebuilt multi-arch Docker image.** GitHub Actions builds the image for amd64, arm64, arm/v7, arm/v6 and riscv64 and publishes it as `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. | – | [#4](https://github.com/isarrider/vzlogger/pull/4) | fork only |
 
-Merged upstream: none yet.
+Merged upstream:
+
+- **OBIS identifiers in the local HTTP server's JSON output.** Each channel in the JSON of the built-in HTTP server (`local`) now has an `obis` field with its identifier, e.g. `"obis": "1-0:1.8.0"`, so clients don't have to map UUIDs to meter values themselves. [#713](https://github.com/volkszaehler/vzlogger/pull/713) (June 2026, in 0.8.10).
+- **Docker: parallel build.** The Docker build runs `make` with one job per CPU core, which makes building the image much faster on multi-core machines. [#574](https://github.com/volkszaehler/vzlogger/pull/574) (February 2023).
+- **Docker: smaller image.** The Dockerfile used a `buster-slim` base image and no longer declared a volume. [#517](https://github.com/volkszaehler/vzlogger/pull/517) (April 2022). The image has since moved to Alpine.
+
+Superseded upstream PRs, closed without being merged:
+
+- [#711](https://github.com/volkszaehler/vzlogger/pull/711) and [#712](https://github.com/volkszaehler/vzlogger/pull/712): earlier versions of the OBIS identifiers change, replaced by [#713](https://github.com/volkszaehler/vzlogger/pull/713).
+- [#703](https://github.com/volkszaehler/vzlogger/pull/703): logged how many readings were still undelivered in the InfluxDB buffer, replaced by [#716](https://github.com/volkszaehler/vzlogger/pull/716), which keeps the readings queued during an outage and logs when the outage starts and ends.
 
 ### SML: dumping frames with a bad CRC
 
