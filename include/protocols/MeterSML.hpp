@@ -65,7 +65,7 @@ class MeterSML : public vz::protocol::Protocol {
 	parity_type_t _parity;
 	std::string _pull;
 	bool _use_local_time;
-	bool _dump_crc_errors;
+	bool _dump_crc_errors; // temporary, until libsml reports CRC errors (libsml#147)
 
 	bool _transport_crc_ok(const unsigned char *buf, size_t len) const;
 	void _dump_frame(const unsigned char *buf, size_t len) const;

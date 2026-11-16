@@ -285,6 +285,7 @@ ssize_t MeterSML::read(std::vector<Reading> &rds, size_t n) {
 		return (0);
 	}
 
+	// temporary workaround until libsml reports CRC errors, see _transport_crc_ok()
 	if (_dump_crc_errors && !_transport_crc_ok(buffer, bytes)) {
 		print(log_warning, "SML transport CRC mismatch, raw frame (%zu bytes):", name().c_str(),
 			  bytes);
@@ -322,6 +323,14 @@ ssize_t MeterSML::read(std::vector<Reading> &rds, size_t n) {
  * libsml only checks the per-message CRCs and silently drops bad messages, so this is
  * the only place where the whole raw frame is still available.
  * Accept CRC-16/X.25 and CRC-16/Kermit (Holley DTZ541), same as libsml does per message.
+ *
+ * TEMPORARY WORKAROUND: this check belongs in libsml. It is done here only because
+ * libsml's API (sml_transport_read(), sml_file_parse()) offers no error reporting or
+ * configuration: a dropped message is only visible as a line on stderr, and
+ * sml_transport_read() returns 0 for every kind of failure. Remove this (and
+ * _dump_frame()) once libsml can report transport/CRC errors to the caller, or once
+ * vzlogger reads SML frames itself instead of using the sml_transport API
+ * (see volkszaehler/libsml#147).
  */
 bool MeterSML::_transport_crc_ok(const unsigned char *buf, size_t len) const {
 	if (len < 16)
