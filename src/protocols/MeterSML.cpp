@@ -287,9 +287,12 @@ ssize_t MeterSML::read(std::vector<Reading> &rds, size_t n) {
 
 	// temporary workaround until libsml reports CRC errors, see _transport_crc_ok()
 	if (_dump_crc_errors && !_transport_crc_ok(buffer, bytes)) {
-		print(log_warning, "SML transport CRC mismatch, raw frame (%zu bytes):", name().c_str(),
-			  bytes);
+		print(log_warning,
+			  "SML transport CRC mismatch, dropping frame (%zu bytes):", name().c_str(), bytes);
 		_dump_frame(buffer, bytes);
+		// don't parse: libsml would only drop the corrupted message(s) again and log a
+		// second "crc mismatch" line for the same frame
+		return (0);
 	}
 
 	/* parse SML file & stripping escape sequences */
