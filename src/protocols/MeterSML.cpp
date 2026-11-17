@@ -290,8 +290,6 @@ ssize_t MeterSML::read(std::vector<Reading> &rds, size_t n) {
 		print(log_warning,
 			  "SML transport CRC mismatch, dropping frame (%zu bytes):", name().c_str(), bytes);
 		_dump_frame(buffer, bytes);
-		// don't parse: libsml would only drop the corrupted message(s) again and log a
-		// second "crc mismatch" line for the same frame
 		return (0);
 	}
 
