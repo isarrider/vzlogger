@@ -11,7 +11,7 @@ Feel free to implement support your own hardware ;)
 About this fork
 ---------------
 
-This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogger). It follows upstream `master` and adds the changes below. This fork's `master` contains all of them, and the [prebuilt Docker image](#prebuilt-image) is built from it. Each change goes through a PR into this fork first, and fixes are then proposed upstream from a branch of their own that is based on upstream `master`. Once upstream merges a change, it moves to the list of merged changes below the table.
+This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [volkszaehler/vzlogger](https://github.com/volkszaehler/vzlogger). It follows upstream `master` and adds the changes below. This fork's `master` contains all of them, and the [prebuilt Docker image](#prebuilt-image) is built from it. Each change goes through a PR into this fork first, and fixes are then proposed upstream from a branch of their own that is based on upstream `master`. Once upstream merges a change, its row is removed from the table, and the [upstream PR history](#upstream-pr-history) shows it as merged.
 
 | Change | Configuration | In this fork | Upstream |
 |---|---|---|---|
@@ -21,16 +21,21 @@ This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [
 | **Docker: builder on `alpine:latest` again.** The builder stage was pinned to `alpine:3.20` to get the build working. With current Alpine (GCC 15.2, CMake 4.2) it builds again on all five platforms, and the builder and runtime stage use the same Alpine release again, so the binary runs against the library versions it was built with. | – | [#10](https://github.com/isarrider/vzlogger/pull/10) | pending: [#718](https://github.com/volkszaehler/vzlogger/pull/718), branch [`fix/dockerfile-alpine-latest`](https://github.com/isarrider/vzlogger/tree/fix/dockerfile-alpine-latest) |
 | **Prebuilt multi-arch Docker image.** GitHub Actions builds the image for amd64, arm64, arm/v7, arm/v6 and riscv64 and publishes it as `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. | – | [#4](https://github.com/isarrider/vzlogger/pull/4) | fork only |
 
-Merged upstream:
+### Upstream PR history
 
-- **OBIS identifiers in the local HTTP server's JSON output.** Each channel in the JSON of the built-in HTTP server (`local`) now has an `obis` field with its identifier, e.g. `"obis": "1-0:1.8.0"`, so clients don't have to map UUIDs to meter values themselves. [#713](https://github.com/volkszaehler/vzlogger/pull/713) (June 2026, in 0.8.10).
-- **Docker: parallel build.** The Docker build runs `make` with one job per CPU core, which makes building the image much faster on multi-core machines. [#574](https://github.com/volkszaehler/vzlogger/pull/574) (February 2023).
-- **Docker: smaller image.** The Dockerfile used a `buster-slim` base image and no longer declared a volume. [#517](https://github.com/volkszaehler/vzlogger/pull/517) (April 2022). The image has since moved to Alpine.
+| PR | What | State |
+|---|---|---|
+| [#517](https://github.com/volkszaehler/vzlogger/pull/517) | Docker: smaller image (`buster-slim` base, no `VOLUME`). The image has since moved to Alpine. | merged (April 2022) |
+| [#574](https://github.com/volkszaehler/vzlogger/pull/574) | Docker: parallel build, `make -j $(nproc)` | merged (February 2023) |
+| [#703](https://github.com/volkszaehler/vzlogger/pull/703) | InfluxDB: log how many readings are still undelivered in the buffer | closed, superseded by [#716](https://github.com/volkszaehler/vzlogger/pull/716) |
+| [#711](https://github.com/volkszaehler/vzlogger/pull/711) | OBIS identifiers in the local HTTP server's JSON output, first version | closed, superseded by [#713](https://github.com/volkszaehler/vzlogger/pull/713) |
+| [#712](https://github.com/volkszaehler/vzlogger/pull/712) | OBIS identifiers in the local HTTP server's JSON output, second version | closed, superseded by [#713](https://github.com/volkszaehler/vzlogger/pull/713) |
+| [#713](https://github.com/volkszaehler/vzlogger/pull/713) | OBIS identifiers in the local HTTP server's JSON output: an `obis` field per channel, e.g. `"obis": "1-0:1.8.0"` | merged (June 2026, in 0.8.10) |
+| [#716](https://github.com/volkszaehler/vzlogger/pull/716) | InfluxDB: no data loss during database outages, with outage logging | open |
+| [#718](https://github.com/volkszaehler/vzlogger/pull/718) | Docker: builder on `alpine:latest` again | open |
+| [#719](https://github.com/volkszaehler/vzlogger/pull/719) | SML: `dump_crc_errors` option to log raw frames with a bad CRC | open |
 
-Superseded upstream PRs, closed without being merged:
-
-- [#711](https://github.com/volkszaehler/vzlogger/pull/711) and [#712](https://github.com/volkszaehler/vzlogger/pull/712): earlier versions of the OBIS identifiers change, replaced by [#713](https://github.com/volkszaehler/vzlogger/pull/713).
-- [#703](https://github.com/volkszaehler/vzlogger/pull/703): logged how many readings were still undelivered in the InfluxDB buffer, replaced by [#716](https://github.com/volkszaehler/vzlogger/pull/716), which keeps the readings queued during an outage and logs when the outage starts and ends.
+To see the exact difference against upstream: [compare volkszaehler:master...isarrider:master](https://github.com/volkszaehler/vzlogger/compare/master...isarrider:vzlogger:master).
 
 ### SML: dumping frames with a bad CRC
 
