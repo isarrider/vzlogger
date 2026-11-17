@@ -38,15 +38,10 @@ vz::api::Null::Null(Channel::Ptr ch, std::list<Option> pOptions) : ApiIF(ch) {}
 vz::api::Null::~Null() {}
 
 void vz::api::Null::send() {
-	// we need to mark all elements as transmitted/deleted otherwise the Channel::Buffer keeps on
+	// nothing to transmit: acknowledge everything, otherwise the Channel's Buffer keeps on
 	// growing
 	Buffer::Ptr buf = channel()->buffer();
-	buf->lock();
-	for (Buffer::iterator it = buf->begin(); it != buf->end(); it++) {
-		it->mark_delete();
-	}
-	buf->unlock();
-	buf->clean();
+	buf->commit(buf->end_cursor());
 }
 
 void vz::api::Null::register_device() {}

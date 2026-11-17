@@ -40,6 +40,7 @@
 #include "Buffer.hpp"
 #include <ApiIF.hpp>
 #include <Options.hpp>
+#include <api/BufferReader.hpp>
 
 namespace vz {
 namespace api {
@@ -75,10 +76,12 @@ class Volkszaehler : public ApiIF {
 	/**
 	 * Create JSON object of tuples
 	 *
-	 * @param buf	the buffer our readings are stored in (required for mutex)
-	 * @return the json_object (has to be free'd)
+	 * Takes the next batch (at most MAX_CHUNK_SIZE readings) from the channel's buffer. It is
+	 * acknowledged only after the middleware accepted it.
+	 *
+	 * @return the json_object (has to be free'd), NULL if there is nothing to send
 	 */
-	json_object *api_json_tuples(Buffer::Ptr buf);
+	json_object *api_json_tuples();
 
 	/**
 	 * Parses JSON encoded exception and stores describtion in err
@@ -89,11 +92,7 @@ class Volkszaehler : public ApiIF {
   private:
 	api_handle_t _api;
 
-	// Volatil
-	std::list<Reading> _values;
-	int64_t _last_timestamp; /**< remember last timestamp */
-	// duplicate support:
-	Reading *_lastReadingSent;
+	BufferReader _reader; /**< our position in the channel's Buffer, duplicates filter */
 
 }; // class Volkszaehler
 
