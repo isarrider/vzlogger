@@ -208,6 +208,40 @@ void *reading_thread(void *arg) {
 	return NULL;
 }
 
+/* Readings waiting to be sent are only reported when there are at least this many.
+ * A healthy channel sends its readings right away, so a larger backlog means that
+ * the middleware or database cannot be reached. */
+static const size_t BUFFER_REPORT_MIN_READINGS = 180;
+
+/* Changes whenever a new local hour starts. */
+static int hour_of_year(time_t t) {
+	struct tm lt;
+	localtime_r(&t, &lt);
+	return lt.tm_yday * 24 + lt.tm_hour;
+}
+
+/* Once per full hour: tell how many readings (and roughly how much memory) are waiting
+ * to be sent. Nothing is logged below BUFFER_REPORT_MIN_READINGS to keep the log quiet. */
+static void report_buffer_fill(Channel::Ptr ch, vz::ApiIF::Ptr api, int &last_hour) {
+	int hour = hour_of_year(time(NULL));
+	if (hour == last_hour)
+		return;
+	last_hour = hour;
+
+	size_t n = api->pending();
+	if (n < BUFFER_REPORT_MIN_READINGS)
+		return;
+
+	// the reading itself plus the overhead of its list node
+	double bytes = (double)n * (sizeof(Reading) + 2 * sizeof(void *));
+	if (bytes >= 1024.0 * 1024.0)
+		print(log_warning, "Buffer holds %zu readings (about %.1f MiB) waiting to be sent",
+			  ch->name(), n, bytes / (1024.0 * 1024.0));
+	else
+		print(log_warning, "Buffer holds %zu readings (about %.1f KiB) waiting to be sent",
+			  ch->name(), n, bytes / 1024.0);
+}
+
 void *logging_thread(void *arg) { // is started by Channel::start and stopped via
 								  // Channel::cancel via pthread_cancel!
 	Channel *__this =
@@ -240,6 +274,9 @@ void *logging_thread(void *arg) { // is started by Channel::start and stopped vi
 		print(log_debug, "Using default volkszaehler api.", ch->name());
 	}
 
+	// first report at the next full hour, not right after the start
+	int last_report_hour = hour_of_year(time(NULL));
+
 	do { /* start thread mainloop */
 		try {
 			ch->wait();
@@ -247,6 +284,7 @@ void *logging_thread(void *arg) { // is started by Channel::start and stopped vi
 		} catch (std::exception &e) {
 			print(log_alert, "Logging thread failed due to: %s", ch->name(), e.what());
 		}
+		report_buffer_fill(ch, api, last_report_hour);
 
 	} while (true); // endless?!
 

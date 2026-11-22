@@ -65,6 +65,9 @@ class Volkszaehler : public ApiIF {
 
 	void register_device();
 
+	// readings in the channel buffer plus those queued here while the middleware is unreachable
+	size_t pending() { return channel()->size() + _values.size(); }
+
 	const std::string middleware() const { return _middleware; }
 
   private:

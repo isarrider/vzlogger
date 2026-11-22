@@ -50,6 +50,9 @@ class InfluxDB : public ApiIF {
 
 	void register_device();
 
+	// readings in the channel buffer plus those queued here while the database is unreachable
+	size_t pending() { return channel()->size() + _values.size(); }
+
   private:
 	CurlResponse *response() { return _response.get(); }
 
