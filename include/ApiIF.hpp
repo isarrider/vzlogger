@@ -53,6 +53,13 @@ class ApiIF {
 	virtual void send() = 0;
 	virtual void register_device() = 0;
 
+	/**
+	 * @brief number of readings that were not delivered yet.
+	 * By default these are all readings still in the channel buffer.
+	 * APIs that keep their own queue override this.
+	 **/
+	virtual size_t pending() { return channel()->size(); }
+
   protected:
 	Channel::Ptr channel() { return _ch; }
 
