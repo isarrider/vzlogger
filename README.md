@@ -46,11 +46,36 @@ To see the exact difference against upstream: [compare volkszaehler:master...isa
         ...
     }]
 
-The dump shows what was corrupted: random single bits point to the optical link (head alignment, ambient light), missing or repeated bytes point to the serial side or a second process reading the same device. To pull the dumps out of the Docker log:
+The dump shows what was corrupted: random single bits point to the optical link (head alignment, ambient light), missing or repeated bytes point to the serial side or a second process reading the same device, and the same byte wrong in every frame points to the meter itself (see below). To pull the dumps out of the Docker log:
 
     docker logs vzlogger 2>&1 | grep -A20 "transport CRC mismatch"
 
-A few CRC errors are normal on an optical head. At one telegram per second, a rate around 0.1–0.2 % means one dropped telegram every few minutes, which doesn't affect the meter counters.
+The log timestamps are in the container's time zone, which is UTC unless the container sets `TZ`.
+
+**The option is for diagnosis only, turn it off afterwards.** With `dump_crc_errors` enabled, every frame with a bad transport CRC is dropped as a whole, including messages in it that are intact. Without the option, libsml only drops the corrupted message(s), and readings in the other messages of the same frame still arrive.
+
+#### Finding: EasyMeter Q3A sends a wrong transaction ID every ~10 minutes
+
+The CRC errors on an EasyMeter Q3A (`ESY` server ID, extended data set after PIN entry, 552-byte frames, one telegram per second) turned out not to be line noise. 25 dumped frames from about 5 hours (2026-11-22/23) all show the same pattern:
+
+| What | Result |
+|---|---|
+| Which message is corrupted | always the first one, `SML_PublicOpen.Res`; the `GetList.Res` with the readings and `SML_PublicClose.Res` have valid CRCs in every frame |
+| Which byte | always offset `0x13` in the frame: the last byte of the open message's transaction ID |
+| How it is wrong | always exactly 3 lower than the correct value, e.g. sent `…5b64`, correct `…5b67` |
+| Evidence | with that one byte set to the +3 value, both the message CRC and the transport CRC are correct, in all 25 frames, and no other single-byte change does that; the corrected ID also matches the end of the request file ID in the same message and is one below the transaction ID of the `GetList.Res` that follows |
+| Timing | intervals are multiples of 600 s, in two separate 10-minute rhythms; about 136 per day |
+
+So the meter calculates both CRCs over the correct transaction ID and then sends a different byte, apparently because something in the meter changes that byte every 10 minutes while a telegram is being built. The optical link is fine.
+
+What it means in practice:
+
+| Setup | Effect of these frames |
+|---|---|
+| Without `dump_crc_errors` | 🟢 no readings lost: libsml drops only the open message and logs `crc mismatch, dropping message`; the readings in the same frame arrive |
+| With `dump_crc_errors` | 🟡 one reading lost per error (about every 10 minutes), because the whole frame is dropped; in Grafana this shows up as a 2 s step, or as a repeated value when the query uses `fill(previous)`; the meter counters (1.8.0 etc.) are not affected |
+
+Similar periodic CRC errors have been reported for the EasyMeter Q3M with other SML readers, without the cause being identified.
 
 Installation
 ---------------
