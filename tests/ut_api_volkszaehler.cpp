@@ -18,15 +18,32 @@ class Volkszaehler_Test {
 									size_t &n) {
 		v.api_parse_exception(r, err, n);
 	}
-	static std::list<Reading> &values(Volkszaehler &v) { return v._values; }
-	static json_object *api_json_tuples(Volkszaehler &v, Buffer::Ptr buf) {
-		return v.api_json_tuples(buf);
-	};
+	// the batch prepared by the last api_json_tuples() call
+	static const std::vector<Buffer::Entry> &values(Volkszaehler &v) { return v._reader.batch(); }
+	static json_object *api_json_tuples(Volkszaehler &v) { return v.api_json_tuples(); };
+	// simulate a successful request: acknowledge the batch
+	static void ack(Volkszaehler &v) { v._reader.commit(); }
+	static void ack_first(Volkszaehler &v) { v._reader.commit_first(); }
 };
 } // namespace api
 } // namespace vz
 
 Config_Options options(config_file());
+
+namespace {
+// a reading becomes visible to the API once the reading thread published it
+void push(Channel *ch, const Reading &r) {
+	ch->push(r);
+	ch->buffer()->publish(0, false);
+}
+::testing::AssertionResult same(const Buffer::Entry &e, const Reading &r) {
+	if (e.time_ms == r.time_ms() && e.value == r.value())
+		return ::testing::AssertionSuccess();
+	return ::testing::AssertionFailure()
+		   << "entry (" << e.time_ms << ", " << e.value << ") != reading (" << r.time_ms() << ", "
+		   << r.value() << ")";
+}
+} // namespace
 
 #ifdef HAVE_CPP_REGEX
 
@@ -133,13 +150,26 @@ TEST(api_Volkszaehler, api_parse_exception) {
 	resp.data = (char *)"{\"exception\": { \"type\":\"UniqueConstraintViolationException\", "
 						"\"message\":\"2 Duplicate entry\"  } }%";
 	resp.size = strlen(resp.data);
-	// todo bug: crashes with double free if _values is empty!
-	// Volkszaehler_Test::api_parse_exception(v, resp, err, n);
-	// ASSERT_STREQ("'UniqueConstraintViolationException': '2 Duplicate entry'", err);
-	Volkszaehler_Test::values(v).push_front(Reading());
+	// nothing sent yet: nothing to remove
 	Volkszaehler_Test::api_parse_exception(v, resp, err, n);
-	ASSERT_TRUE(0 == Volkszaehler_Test::values(v).size());
 	ASSERT_STREQ("'UniqueConstraintViolationException': '2 Duplicate entry'", err);
+	// the first reading of the batch is removed, the others are kept for the next request
+	struct timeval t;
+	t.tv_usec = 0;
+	t.tv_sec = 1;
+	push(ch, Reading(1.0, t, pRid));
+	t.tv_sec = 2;
+	push(ch, Reading(2.0, t, pRid));
+	json_object *j = Volkszaehler_Test::api_json_tuples(v);
+	ASSERT_EQ(2u, Volkszaehler_Test::values(v).size());
+	json_object_put(j);
+	Volkszaehler_Test::api_parse_exception(v, resp, err, n);
+	ASSERT_STREQ("'UniqueConstraintViolationException': '2 Duplicate entry'", err);
+	ASSERT_EQ(1u, ch->buffer()->size());
+	j = Volkszaehler_Test::api_json_tuples(v);
+	ASSERT_EQ(1u, Volkszaehler_Test::values(v).size());
+	ASSERT_EQ(2.0, Volkszaehler_Test::values(v).front().value);
+	json_object_put(j);
 
 	delete[] err;
 }
@@ -154,7 +184,7 @@ TEST(api_Volkszaehler, api_json_tuples_no_duplicates) {
 	Volkszaehler v(chp, options);
 
 	// test using empty data:
-	json_object *j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	json_object *j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j == 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 0);
 
@@ -166,28 +196,29 @@ TEST(api_Volkszaehler, api_json_tuples_no_duplicates) {
 	t2.tv_usec = 1;
 	Reading r1(1.0, t1, pRid);
 	Reading r2(1.0, t2, pRid);
-	ch->push(r1);
+	push(ch, r1);
 
 	// expect one data returned in values:
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 1);
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r1);
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r1));
 	json_object_put(j);
-	ch->buffer()->clean(); // remove deleted
-	ASSERT_TRUE(ch->buffer()->size() == 0);
+	// not acknowledged (e.g. request failed): stays in the buffer
+	ASSERT_EQ(1u, ch->buffer()->size());
 
-	ch->push(r1);
-	ch->push(r2);
-	// expect only two data returned in values: (r1 ignored as timestamp same as previous) and r2)
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	push(ch, r1);
+	push(ch, r2);
+	// expect two data returned in values: r1 (not acknowledged yet) and r2. The 2nd r1 is
+	// ignored as its timestamp is the same as the previous one.
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 2);
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r1);
-	ASSERT_EQ(Volkszaehler_Test::values(v).back(), r2);
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r1));
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).back(), r2));
 
 	json_object_put(j);
-	ch->buffer()->clean(); // remove deleted
+	Volkszaehler_Test::ack(v);
 	ASSERT_TRUE(ch->buffer()->size() == 0);
 }
 
@@ -202,7 +233,7 @@ TEST(api_Volkszaehler, api_json_tuples_duplicates) {
 	Volkszaehler v(chp, options);
 
 	// test using empty data:
-	json_object *j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	json_object *j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j == 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 0);
 
@@ -214,87 +245,77 @@ TEST(api_Volkszaehler, api_json_tuples_duplicates) {
 	t2.tv_usec = 1;
 	Reading r1(1.0, t1, pRid);
 	Reading r2(1.0, t2, pRid);
-	ch->push(r1);
+	push(ch, r1);
 
 	// expect one data returned in values:
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 1);
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r1);
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r1));
 	json_object_put(j);
-	ch->buffer()->clean(); // remove deleted
-	ASSERT_TRUE(ch->buffer()->size() == 0);
 
-	ch->push(r1);
-	ch->push(r2);
+	push(ch, r1);
+	push(ch, r2);
 	// expect one data returned in values: (r1 same timestamp, r2 ignored)
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 1);
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r1);
-
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r1));
 	json_object_put(j);
-	ch->buffer()->clean(); // remove deleted
-	ASSERT_TRUE(ch->buffer()->size() == 0);
 
 	struct timeval t3;
 	t3.tv_sec = 2;
 	t3.tv_usec = 1 + 1000; // at least one ms distance
 	Reading r3(2.0, t3, pRid);
-	ch->push(r3);
+	push(ch, r3);
 
 	// now add one with a different value:
 	// then we should get r1 and the new value r3:
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 2);
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r1);
-	Volkszaehler_Test::values(v).pop_front();
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r3);
-
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r1));
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).back(), r3));
 	json_object_put(j);
-	ASSERT_TRUE(ch->buffer()->size() == 0);
+	Volkszaehler_Test::ack_first(v); // only r1 is done
 
 	// now try timeout:
 	// add r4 with same value but distance >10s
 	t1.tv_sec = t3.tv_sec + 10;
 	t1.tv_usec = t3.tv_usec;
 	Reading r4(2.0, t1, pRid);
-	ch->push(r4);
+	push(ch, r4);
 	// now there should be r3 and r4:
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 2) << Volkszaehler_Test::values(v).size();
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r3);
-	Volkszaehler_Test::values(v).pop_front();
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r4);
-	Volkszaehler_Test::values(v).pop_front();
-
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r3));
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).back(), r4));
 	json_object_put(j);
+	Volkszaehler_Test::ack(v);
 	ASSERT_TRUE(ch->buffer()->size() == 0);
 
 	// now try timeout and value change:
 	// expect only new value to be added:
 	t1.tv_sec += 11;
 	Reading r5(5.0, t1, pRid);
-	ch->push(r5);
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	push(ch, r5);
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 1) << Volkszaehler_Test::values(v).size();
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r5);
-	Volkszaehler_Test::values(v).pop_front();
-
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r5));
 	json_object_put(j);
+	Volkszaehler_Test::ack(v);
 	ASSERT_TRUE(ch->buffer()->size() == 0);
 
 	// now ignore one
 	t1.tv_sec += 1;
 	Reading r6(5.0, t1, pRid);
-	ch->push(r6);
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	push(ch, r6);
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j == 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 0) << Volkszaehler_Test::values(v).size();
-
+	// ignored readings are acknowledged right away
 	ASSERT_TRUE(ch->buffer()->size() == 0);
 
 	// and try timeout and value change again
@@ -302,13 +323,12 @@ TEST(api_Volkszaehler, api_json_tuples_duplicates) {
 
 	t1.tv_sec += 10;
 	Reading r7(7.0, t1, pRid);
-	ch->push(r7);
-	j = Volkszaehler_Test::api_json_tuples(v, ch->buffer());
+	push(ch, r7);
+	j = Volkszaehler_Test::api_json_tuples(v);
 	ASSERT_TRUE(j != 0);
 	ASSERT_TRUE(Volkszaehler_Test::values(v).size() == 1) << Volkszaehler_Test::values(v).size();
-	ASSERT_EQ(Volkszaehler_Test::values(v).front(), r7);
-	Volkszaehler_Test::values(v).pop_front();
-
+	ASSERT_TRUE(same(Volkszaehler_Test::values(v).front(), r7));
 	json_object_put(j);
+	Volkszaehler_Test::ack(v);
 	ASSERT_TRUE(ch->buffer()->size() == 0);
 }

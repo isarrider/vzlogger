@@ -2,6 +2,7 @@
 
 
 set(api_srcs
+  BufferReader.cpp
   Volkszaehler.cpp
   MySmartGrid.cpp
   InfluxDB.cpp
