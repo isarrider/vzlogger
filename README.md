@@ -19,6 +19,7 @@ This is [isarrider/vzlogger](https://github.com/isarrider/vzlogger), a fork of [
 | **InfluxDB: outages are visible in the log.** A failed insert logs how many readings are still queued, and the first successful insert afterwards logs `InfluxDB insert succeeded again, sent N queued readings, M still queued`. Both are warnings, so the start and end of an outage show up at `verbosity` 3 or higher. | – | [#2](https://github.com/isarrider/vzlogger/pull/2) | pending: part of [#716](https://github.com/volkszaehler/vzlogger/pull/716) |
 | **Docker: builder on `alpine:latest` again.** The builder stage was pinned to `alpine:3.20` to get the build working. With current Alpine (GCC 15.2, CMake 4.2) it builds again on all five platforms, and the builder and runtime stage use the same Alpine release again, so the binary runs against the library versions it was built with. | – | [#10](https://github.com/isarrider/vzlogger/pull/10) | pending: [#718](https://github.com/volkszaehler/vzlogger/pull/718), branch [`fix/dockerfile-alpine-latest`](https://github.com/isarrider/vzlogger/tree/fix/dockerfile-alpine-latest) |
 | **Log: buffer fill level once per hour.** When the middleware or database cannot be reached, readings pile up in memory. Once per full local hour, each channel with at least 180 readings waiting to be sent logs how many there are and about how much memory they use, e.g. `Buffer holds 481 readings (about 30.1 KiB) waiting to be sent`. It is a warning, so it shows up at `verbosity` 3 or higher. Below 180 readings nothing is logged, so the log stays quiet when everything works. | – | [#17](https://github.com/isarrider/vzlogger/pull/17) | not proposed upstream yet; the InfluxDB part builds on [#716](https://github.com/volkszaehler/vzlogger/pull/716) |
+| **SML: `dump_crc_errors` keeps parsing frames with a bad CRC.** Upstream drops the whole frame once its transport CRC is wrong. On an EasyMeter Q3A, the bad CRC comes from a wrong byte in the open message while the readings are intact, so that lost a valid reading about every 10 minutes, see [the finding](#finding-easymeter-q3a-sends-a-wrong-transaction-id-every-10-minutes). Here the frame is logged and then parsed, and libsml drops only the corrupted message(s). | `"dump_crc_errors": true` on an SML meter | [#20](https://github.com/isarrider/vzlogger/pull/20) | not proposed upstream yet |
 | **Prebuilt multi-arch Docker image.** GitHub Actions builds the image for amd64, arm64, arm/v7, arm/v6 and riscv64 and publishes it as `ghcr.io/isarrider/vzlogger`, see [Docker](#docker) below. | – | [#4](https://github.com/isarrider/vzlogger/pull/4) | fork only |
 
 ### Upstream PR history
@@ -52,7 +53,7 @@ The dump shows what was corrupted: random single bits point to the optical link 
 
 The log timestamps are in the container's time zone, which is UTC unless the container sets `TZ`.
 
-**The option is for diagnosis only, turn it off afterwards.** With `dump_crc_errors` enabled, every frame with a bad transport CRC is dropped as a whole, including messages in it that are intact. Without the option, libsml only drops the corrupted message(s), and readings in the other messages of the same frame still arrive.
+In this fork, frames with a bad transport CRC are logged and then still parsed, so libsml drops only the corrupted message(s) and readings in intact messages of the same frame still arrive, the same as without the option. Upstream (#719 as merged) drops the whole frame instead, so there the option is for diagnosis only and should be turned off afterwards.
 
 #### Finding: EasyMeter Q3A sends a wrong transaction ID every ~10 minutes
 
@@ -73,7 +74,8 @@ What it means in practice:
 | Setup | Effect of these frames |
 |---|---|
 | Without `dump_crc_errors` | 🟢 no readings lost: libsml drops only the open message and logs `crc mismatch, dropping message`; the readings in the same frame arrive |
-| With `dump_crc_errors` | 🟡 one reading lost per error (about every 10 minutes), because the whole frame is dropped; in Grafana this shows up as a 2 s step, or as a repeated value when the query uses `fill(previous)`; the meter counters (1.8.0 etc.) are not affected |
+| With `dump_crc_errors`, this fork | 🟢 no readings lost: the frame is logged as hex and then parsed as above |
+| With `dump_crc_errors`, upstream | 🟡 one reading lost per error (about every 10 minutes), because the whole frame is dropped; in Grafana this shows up as a 2 s step, or as a repeated value when the query uses `fill(previous)`; the meter counters (1.8.0 etc.) are not affected |
 
 Similar periodic CRC errors have been reported for the EasyMeter Q3M with other SML readers, without the cause being identified.
 
